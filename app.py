@@ -89,8 +89,8 @@ def genera_calendario_mensile(anno, mese):
     tot_giorni = (ultimo_giorno - primo_giorno).days + 1
     giorni = [primo_giorno + datetime.timedelta(days=i) for i in range(tot_giorni)]
     
-    # Lista collaboratori (escluso l'Admin)
-    collaboratori = [UTENTI[u]["nome"] for u in UTENTI if UTENTI[u]["ruolo"] == "User"]
+    # Lista collaboratori (inclusi tutti gli utenti, sia User che Admin)
+    collaboratori = [UTENTI[u]["nome"] for u in UTENTI]
     
     # Crea un DataFrame vuoto con i giorni come indici e i collaboratori come colonne
     df_calendario = pd.DataFrame("Presente", index=giorni, columns=collaboratori)
@@ -230,7 +230,6 @@ with tab_calendar:
     df_cal_visual.index = nuovi_indici
     
     # Render della tabella stilizzata con i colori configurati
-    # Sostituito .applymap() (deprecato) con .map() e corretto il nome della funzione in colora_celle
     st.dataframe(
         df_cal_visual.style.map(colora_celle),
         use_container_width=True,
