@@ -230,8 +230,9 @@ with tab_calendar:
     df_cal_visual.index = nuovi_indici
     
     # Render della tabella stilizzata con i colori configurati
+    # Sostituito .applymap() (deprecato) con .map() e corretto il nome della funzione in colora_celle
     st.dataframe(
-        df_cal_visual.style.applymap(colora_celle),
+        df_cal_visual.style.map(colora_celle),
         use_container_width=True,
         height=600
     )
