@@ -78,7 +78,7 @@ def logout():
 # --- LOGICA DI COSTRUZIONE DEL CALENDARIO ---
 def genera_calendario_mensile(anno, mese):
     """Genera una matrice (DataFrame) per il mese e anno selezionati."""
-    # Trova il primo e l'ultimo giorno del mese
+    # Trova il primo e l'ultimo girono del mese
     primo_giorno = datetime.date(anno, mese, 1)
     if mese == 12:
         ultimo_giorno = datetime.date(anno + 1, 1, 1) - datetime.timedelta(days=1)
@@ -125,9 +125,9 @@ def colora_celle(val):
     if val == "Presente":
         return "background-color: #d4edda; color: #155724; font-weight: 500;" # Verde chiaro
     elif val in ["Ferie", "Permesso", "Cambio Orario"]:
-        return "background-color: #fff3cd; color: #856404; font-weight: bold;" # Arancione/Giallo chiaro
+        return "background-color: #fff3cd; color: #856404; font-weight: bold;" # Giallo chiaro
     elif val == "Weekend (Chiuso)":
-        return "background-color: #343a40; color: #6c757d; font-style: italic;" # Grigio scuro con testo grigio chiaro
+        return "background-color: #343a40; color: #6c757d; font-style: italic;" # Grigio scuro
     return ""
 
 # --- CONTEGGIO ASSENZE GIORNALIERE (ALERT DI COPERTURA) ---
@@ -140,7 +140,7 @@ def ottieni_assenze_giorno(data_selezionata):
             req_fine = datetime.datetime.strptime(req["data_fine"], "%Y-%m-%d").date()
             
             if req_inizio <= data_selezionata <= req_fine:
-                if data_selezionata.weekday() not in [5, 6]: # Escludiamo i weekend dal conteggio di allerta critico
+                if data_selezionata.weekday() not in [5, 6]: # Escludiamo i weekend
                     nome = UTENTI[req["utente"]]["nome"]
                     assenze.append(f"{nome} ({req['tipo']})")
     return assenze
@@ -165,7 +165,6 @@ if not st.session_state.autenticato:
             else:
                 st.warning("Per favore, compila tutti i campi.")
                 
-    # Mostra credenziali di prova per facilitare il primo avvio
     st.info("""
     💡 **Credenziali di Test per questa demo:**
     - **Admin:** `alessio` / `adminpassword123`
@@ -232,7 +231,7 @@ with tab_calendar:
     
     # Render della tabella stilizzata con i colori configurati
     st.dataframe(
-        df_cal_visual.style.applymap(colora_cells),
+        df_cal_visual.style.applymap(colora_celle),
         use_container_width=True,
         height=600
     )
@@ -268,23 +267,21 @@ with tab_richieste:
                     "data_fine": data_fine.strftime("%Y-%m-%d"),
                     "tipo": tipo_assenza,
                     "note": note,
-                    "stato": "In attesa", # Stati possibili: "In attesa", "Approvata", "Rifiutata"
+                    "stato": "In attesa",
                     "data_creazione": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
                 
                 st.session_state.db["richieste"].append(nuova_req)
                 salva_dati(st.session_state.db)
-                st.success("Richiesta inviata correttamente e in attesa di approvazione dal Responsabile.")
+                st.success("Richiesta inviata correttamente e in attesa di approvazione.")
                 st.balloons()
 
-    # Sezione "Le Mie Richieste" in fondo alla pagina per tracciare lo stato
     st.markdown("---")
     st.subheader("Le tue richieste inviate")
     mie_req = [r for r in st.session_state.db["richieste"] if r["utente"] == st.session_state.utente_loggato]
     
     if len(mie_req) > 0:
         df_mie_req = pd.DataFrame(mie_req)
-        # Rendiamo le colonne più leggibili
         df_mie_req_view = df_mie_req[["tipo", "data_inizio", "data_fine", "note", "stato"]].copy()
         df_mie_req_view.columns = ["Tipo", "Da Data", "A Data", "Note", "Stato Approvazione"]
         st.dataframe(df_mie_req_view, use_container_width=True)
@@ -316,9 +313,6 @@ if st.session_state.ruolo_utente == "Admin":
                 inizio_date = datetime.datetime.strptime(inizio_str, "%Y-%m-%d").date()
                 fine_date = datetime.datetime.strptime(fine_str, "%Y-%m-%d").date()
                 
-                # Visualizzazione dettagliata della singola richiesta in un box (expander)
-                titolo_box = f"Richiesta {tipo} da parte di {nome_richiedente} (dal {inizio_str} al {fine_str})"
-                
                 with st.container(border=True):
                     col_det, col_azioni = st.columns([2, 1])
                     
@@ -329,26 +323,22 @@ if st.session_state.ruolo_utente == "Admin":
                             st.markdown(f"📝 **Note:** *\"{note_req}\"*")
                             
                         # --- ANALISI DI COPERTURA CRITICA ---
-                        # Controlliamo giorno per giorno nel periodo richiesto quante persone sono già assenti
                         giorno_temp = inizio_date
                         segnala_allarme = False
                         recap_assenze = []
                         
                         while giorno_temp <= fine_date:
-                            # Controlliamo solo i giorni lavorativi
                             if giorno_temp.weekday() not in [5, 6]:
                                 assenti = ottieni_assenze_giorno(giorno_temp)
-                                # Escludiamo il richiedente stesso per evitare falsi positivi se avesse già vecchie richieste approvate sovrapposte
                                 assenti = [a for a in assenti if not a.startswith(nome_richiedente)]
                                 
                                 count_assenti = len(assenti)
                                 if count_assenti > 0:
                                     recap_assenze.append(f"Il **{giorno_temp.strftime('%d/%m')}** ci sono già {count_assenti} assenti: {', '.join(assenti)}")
-                                if count_assenti >= 2: # Regola fondamentale: se ci sono già 2 o più persone assenti
+                                if count_assenti >= 2:
                                     segnala_allarme = True
                             giorno_temp += datetime.timedelta(days=1)
                         
-                        # Alert Visivo in caso di bassa copertura
                         if segnala_allarme:
                             st.markdown(
                                 """<div style='background-color:#f8d7da; border-left:6px solid #dc3545; padding:12px; border-radius:4px; margin-bottom:10px;'>
@@ -365,12 +355,10 @@ if st.session_state.ruolo_utente == "Admin":
                     with col_azioni:
                         st.write(" ")
                         st.write(" ")
-                        # Creazione chiavi univoche basate sull'ID della richiesta per evitare conflitti di widget
                         btn_approva = st.button("✅ Approva", key=f"app_{req_id}", use_container_width=True, type="primary")
                         btn_rifiuta = st.button("❌ Rifiuta", key=f"rif_{req_id}", use_container_width=True)
                         
                         if btn_approva:
-                            # Aggiorna lo stato nel database
                             for r in st.session_state.db["richieste"]:
                                 if r["id"] == req_id:
                                     r["stato"] = "Approvata"
@@ -379,50 +367,9 @@ if st.session_state.ruolo_utente == "Admin":
                             st.rerun()
                             
                         if btn_rifiuta:
-                            # Aggiorna lo stato nel database
                             for r in st.session_state.db["richieste"]:
                                 if r["id"] == req_id:
                                     r["stato"] = "Rifiutata"
                             salva_dati(st.session_state.db)
                             st.toast(f"Richiesta di {nome_richiedente} rifiutata.", icon="❌")
                             st.rerun()
-```
-eof
-
----
-
-### Guida Completa al Deploy: Da zero alla pubblicazione online
-
-Per avere la tua web app pronta, funzionante e raggiungibile tramite link da parte del tuo team, segui questi passaggi dettagliati.
-
-#### Fase 1: Testare l'applicazione in Locale
-Prima di pubblicarla online, puoi provarla sul tuo computer.
-
-1. **Apri il browser su Google** (come richiesto) e cerca "scaricare Python". Vai sul sito ufficiale di Python e installa l'ultima versione disponibile per il tuo sistema operativo. Assicurati di spuntare la casella **"Add Python to PATH"** durante l'installazione su Windows.
-2. Apri il tuo Terminale (Prompt dei comandi su Windows o Terminale su macOS).
-3. Installa Streamlit e Pandas eseguendo questo comando:
-   ```bash
-   pip install streamlit pandas
-   ```
-4. Crea una nuova cartella sul tuo computer (es. `teamshift`) e crea all'interno un file chiamato `app.py`.
-5. Copia e incolla tutto il codice del riquadro soprastante all'interno del file `app.py` e salvalo.
-6. Sempre dal terminale, spostati nella cartella contenente il file ed esegui l'applicazione:
-   ```bash
-   streamlit run app.py
-   ```
-7. Si aprirà automaticamente una pagina nel tuo browser all'indirizzo `http://localhost:8501` con la tua applicazione funzionante!
-
----
-
-#### Fase 2: Configurazione di GitHub (Necessaria per la pubblicazione)
-Streamlit Community Cloud legge i file direttamente da GitHub per pubblicare la tua app.
-
-1. Vai su [github.com](https://github.com) e crea un account gratuito (se non ne hai già uno).
-2. Crea un nuovo repository privato o pubblico cliccando su **"New"** (Nuovo Repository).
-3. Chiamalo, ad esempio, `gestione-turni-team`.
-4. Carica all'interno del repository i seguenti file:
-   * **`app.py`**: Il file contenente il codice Python fornito sopra.
-   * **`requirements.txt`**: Un file di testo che indica a Streamlit quali librerie installare. Crealo e scrivi all'interno semplicemente:
-     ```text
-     streamlit
-     pandas
