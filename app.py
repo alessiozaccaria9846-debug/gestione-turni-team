@@ -58,7 +58,6 @@ UTENTI = {
 }
 
 # --- DEFINIZIONE TURNI STANDARD (Lunedì - Giovedì) ---
-# Aggiornata Francesca con orario fisso 9-18 anziché Flexy
 ORARI_BASE_SETTIMANALI = {
     "Alessio Z.": {0: "9-18", 1: "9-18", 2: "9-18", 3: "9-18"},
     "Martina":    {0: "9-18", 1: "9-18", 2: "8-17", 3: "8-17"},
@@ -340,8 +339,8 @@ with tab_calendar:
 with tab_richieste:
     st.subheader("Invia una nuova richiesta di assenza")
     
-    # Widget di selezione tipo assenza (posto fuori da un blocco st.form per garantire istantanea reattività)
-    tipo_assenza = st.selectbox("Tipo di Assenza", ["Ferie", "Permesso", "Cambio Orario"])
+    # Rimosso "Cambio Orario" lasciando esclusivamente "Ferie" e "Permesso"
+    tipo_assenza = st.selectbox("Tipo di Assenza", ["Ferie", "Permesso"])
     
     col1, col2 = st.columns(2)
     
@@ -373,7 +372,7 @@ with tab_richieste:
                 ore_calcolate_permesso = 0
                 st.error("L'orario di fine deve essere successivo all'orario di inizio!")
         else:
-            # Per Ferie e Cambi, mostriamo la classica selezione con data inizio e fine
+            # Per le Ferie, mostriamo la classica selezione con data inizio e fine
             data_inizio = st.date_input("Data Inizio", datetime.date.today())
             data_fine = st.date_input("Data Fine (Inclusa)", datetime.date.today())
             ore_calcolate_permesso = 0
