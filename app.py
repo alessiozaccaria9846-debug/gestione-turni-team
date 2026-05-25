@@ -287,15 +287,15 @@ with tab_calendar:
 
 
 # ------------------------------------------------------------------------------
-# TAB 2: SEZIONE ORARI FISSI & ALTERNANZE (Nuova Sezione)
+# TAB 2: SEZIONE ORARI FISSI & ALTERNANZE
 # ------------------------------------------------------------------------------
 with tab_orari:
     st.subheader("📋 Matrice Oraria di Riferimento")
     st.write("Di seguito sono riportati gli orari standard del team dal Lunedì al Giovedì, come da organizzazione aziendale:")
     
-    # Costruiamo la tabella fissa Lun-Gio
+    # Costruiamo la tabella fissa Lun-Gio (utilizzando i nomi con la formattazione corretta)
     giorni_nomi = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ"]
-    colonne_membri = ["ALESSIO Z.", "MARTINA", "GAIA", "COSTANZA", "LORENZO", "FRANCESCA"]
+    colonne_membri = ["Alessio Z.", "Martina", "Gaia", "Costanza", "Lorenzo", "Francesca"]
     
     dati_standard = []
     for g_idx, g_nome in enumerate(giorni_nomi):
