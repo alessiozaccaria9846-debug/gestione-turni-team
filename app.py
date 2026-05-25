@@ -68,27 +68,77 @@ ORARI_BASE_SETTIMANALI = {
 }
 
 DB_FILE = "turni_data.json"
+APP_ID = "teamshift-prod"
 
-# --- FUNZIONI DI GESTIONE DATABASE (JSON) ---
+# --- CONNESSIONE AL DATABASE FIRESTORE (CLOUD) ---
+@st.cache_resource
+def inizializza_firestore():
+    """Inizializza il client Firestore se le credenziali sono presenti nei secrets di Streamlit."""
+    if "gcp_service_account" in st.secrets:
+        try:
+            from google.cloud import firestore
+            from google.oauth2 import service_account
+            
+            # Carichiamo la configurazione dal dizionario dei secrets
+            info_chiave = json.loads(st.secrets["gcp_service_account"])
+            credenziali = service_account.Credentials.from_service_account_info(info_chiave)
+            client_db = firestore.Client(credentials=credenziali, project=info_chiave.get("project_id"))
+            return client_db
+        except Exception as e:
+            st.sidebar.error(f"Errore connessione Cloud: {e}")
+            return None
+    return None
+
+# Tentativo di connessione a Firestore
+db_client = inizializza_firestore()
+
+# --- FUNZIONI DI GESTIONE DATABASE (IBRIDO: CLOUD FIRESTORE / JSON LOCALE) ---
 def carica_dati():
-    """Carica i dati dal file JSON locale o inizializza un database vuoto."""
+    """Carica i dati da Firestore (Cloud) o, in alternativa, dal file JSON locale di fallback."""
+    struttura_iniziale = {
+        "richieste": [],
+        "storico_approvazioni": []
+    }
+    
+    if db_client is not None:
+        try:
+            # Riferimento al percorso conforme alle regole di sicurezza:
+            # /artifacts/{appId}/public/data/state -> documento "current"
+            doc_ref = db_client.collection("artifacts").document(APP_ID).collection("public").document("data").collection("state").document("current")
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict().get("db_data", struttura_iniziale)
+            else:
+                # Se il documento sul cloud non esiste ancora, lo creiamo vuoto
+                doc_ref.set({"db_data": struttura_iniziale})
+                return struttura_iniziale
+        except Exception as e:
+            st.sidebar.error(f"Errore lettura Cloud: {e}. Fallback su database locale.")
+            
+    # Fallback Database locale JSON
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
-    
-    # Struttura dati iniziale vuota
-    return {
-        "richieste": [],  # Lista di richieste di ferie/permessi/cambi
-        "storico_approvazioni": []
-    }
+            
+    return struttura_iniziale
 
 def salva_dati(data):
-    """Salva lo stato corrente dei dati nel file JSON locale."""
+    """Salva i dati su Firestore (Cloud) o, in alternativa, sul file JSON locale."""
+    if db_client is not None:
+        try:
+            doc_ref = db_client.collection("artifacts").document(APP_ID).collection("public").document("data").collection("state").document("current")
+            doc_ref.set({"db_data": data})
+            return True
+        except Exception as e:
+            st.error(f"Errore di scrittura nel Cloud Database: {e}")
+            
+    # Salvataggio di fallback locale
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+    return False
 
 # Inizializzazione dei dati nella sessione di Streamlit
 if "db" not in st.session_state:
@@ -281,6 +331,16 @@ with st.sidebar:
     st.markdown(f"**Ruolo:** `{st.session_state.ruolo_utente}`")
     st.markdown("---")
     
+    # Indicatore Stato Database nel Sidebar (UX Eccellente)
+    if db_client is not None:
+        st.success("☁️ Cloud Database Attivo")
+    else:
+        st.warning("💾 Database Locale (Temporaneo)")
+        if st.session_state.ruolo_utente == "Admin":
+            st.info("💡 Collega Firestore per non perdere i dati delle approvazioni (vedi guida_deploy.md)")
+            
+    st.markdown("---")
+    
     # Selettore del Periodo da visualizzare
     st.subheader("Filtro Calendario")
     oggi = datetime.date.today()
@@ -325,7 +385,7 @@ with tab_calendar:
     nuovi_indici = [f"{giorno.strftime('%d/%m/%Y')} ({giorni_settimana[giorno.weekday()]})" for giorno in df_cal_visual.index]
     df_cal_visual.index = nuovi_indici
     
-    # Renderizzazione standard stabile e compatibile del DataFrame (Senza selection_mode incompatibili)
+    # Renderizzazione standard stabile e compatibile del DataFrame
     st.dataframe(
         df_cal_visual.style.map(colora_celle),
         use_container_width=True,
@@ -347,19 +407,17 @@ with tab_calendar:
         col_rit_giorno, col_rit_btn = st.columns([3, 1])
         
         with col_rit_giorno:
-            # Creiamo una lista leggibile delle date occupate da ferie o permessi per facilitare la rimozione
+            # Creiamo una lista delle date occupate per facilitare la rimozione
             opzioni_giorni_occupati = {}
             for r in mie_approvate:
                 inizio = datetime.datetime.strptime(r["data_inizio"], "%Y-%m-%d").date()
                 fine = datetime.datetime.strptime(r["data_fine"], "%Y-%m-%d").date()
                 tipo_r = r["tipo"]
                 
-                # Sviluppiamo le singole date coperte dalla richiesta
                 temp_date = inizio
                 while temp_date <= fine:
                     if temp_date.weekday() not in [5, 6]:  # Escludiamo i weekend
                         label_giorno = f"{temp_date.strftime('%d/%m/%Y')} - {tipo_r}"
-                        # Salviamo il riferimento alla richiesta ID e alla data specifica
                         opzioni_giorni_occupati[label_giorno] = {
                             "id": r["id"],
                             "data_rimozione": temp_date.strftime("%Y-%m-%d")
@@ -377,28 +435,22 @@ with tab_calendar:
                 info_rimozione = None
         
         with col_rit_btn:
-            st.write("")  # Spaziatore visivo per allineare il bottone
+            st.write("")  # Spaziatore visivo
             if info_rimozione is not None:
                 if st.button("Rimuovi Assenza", use_container_width=True, type="primary"):
                     req_id = info_rimozione["id"]
-                    data_da_rimuovere = info_rimozione["data_rimozione"]
                     
                     vecchie_richieste = st.session_state.db["richieste"]
                     nuove_richieste = []
                     
                     for r in vecchie_richieste:
                         if r["id"] == req_id:
-                            # Se la richiesta è di un singolo giorno, la cancelliamo direttamente
-                            if r["data_inizio"] == r["data_fine"]:
-                                continue
-                            else:
-                                # Se copre più giorni, la rimuoviamo interamente per semplicità di gestione
-                                continue
+                            continue  # Rimuove l'intera richiesta associata
                         nuove_richieste.append(r)
                         
                     st.session_state.db["richieste"] = nuove_richieste
                     salva_dati(st.session_state.db)
-                    st.success("Giorno di assenza rimosso! Il calendario si sta aggiornando...")
+                    st.success("Assenza rimossa! Aggiornamento del calendario...")
                     st.rerun()
     else:
         st.info("Non hai ferie o permessi approvati in questo mese.")
@@ -488,7 +540,6 @@ with tab_richieste:
             
             if st.button("🗑️ Ritira Richiesta Selezionata", use_container_width=True):
                 id_da_cancellare = opzioni_ritiro[richiesta_da_ritirare]
-                # Aggiorna il database filtrando via la richiesta eliminata
                 st.session_state.db["richieste"] = [r for r in st.session_state.db["richieste"] if r["id"] != id_da_cancellare]
                 salva_dati(st.session_state.db)
                 st.success("Richiesta ritirata con successo e rimossa dal calendario!")
