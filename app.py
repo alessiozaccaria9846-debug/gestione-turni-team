@@ -313,7 +313,7 @@ else:
 
 
 # ------------------------------------------------------------------------------
-# TAB 1: CALENDARIO TEAM (Interattivo con Click di Ritiro Diretto)
+# TAB 1: CALENDARIO TEAM (Retrocompatibile e Stabile)
 # ------------------------------------------------------------------------------
 with tab_calendar:
     # Generazione e Formattazione del Calendario
@@ -325,70 +325,83 @@ with tab_calendar:
     nuovi_indici = [f"{giorno.strftime('%d/%m/%Y')} ({giorni_settimana[giorno.weekday()]})" for giorno in df_cal_visual.index]
     df_cal_visual.index = nuovi_indici
     
-    # Rendiamo il calendario interattivo permettendo la selezione di singole celle
-    st.markdown("*Puoi ritirare un giorno di Ferie o Permesso approvato cliccando direttamente sulla cella corrispondente alla tua colonna.*")
-    event = st.dataframe(
+    # Renderizzazione standard stabile e compatibile del DataFrame (Senza selection_mode incompatibili)
+    st.dataframe(
         df_cal_visual.style.map(colora_celle),
         use_container_width=True,
-        height=480,
-        on_select="rerun",
-        selection_mode="single_cell"
+        height=480
     )
 
-    # Gestione del Click sulla cella del calendario
-    cells = []
-    if event is not None:
-        if isinstance(event, dict) and "selection" in event:
-            cells = event["selection"].get("cells", [])
-        elif hasattr(event, "selection") and hasattr(event.selection, "cells"):
-            cells = event.selection.cells
+    # --- SISTEMA DI RITIRO DIRETTO OTTIMIZZATO ---
+    st.markdown("---")
+    st.subheader("🗑️ Ritira un giorno di Ferie o Permesso")
+    st.write("Se hai prenotato un giorno di ferie o permesso e vuoi cancellarlo per tornare in presenza, puoi farlo all'istante da qui:")
 
-    if cells:
-        cell = cells[0]
-        row_idx = cell.get("row")
-        col_idx = cell.get("column")
+    # Filtriamo solo le richieste approvate dell'utente corrente
+    mie_approvate = [
+        r for r in st.session_state.db["richieste"] 
+        if r["utente"] == st.session_state.utente_loggato and r["stato"] == "Approvata"
+    ]
+
+    if len(mie_approvate) > 0:
+        col_rit_giorno, col_rit_btn = st.columns([3, 1])
         
-        if row_idx is not None and col_idx is not None:
-            giorno_selezionato = df_cal.index[row_idx]
-            nome_collaboratore = df_cal.columns[col_idx]
-            valore_cella = df_cal.iloc[row_idx, col_idx]
-            
-            # Controlliamo se la cella selezionata corrisponde all'utente loggato
-            if nome_collaboratore == st.session_state.nome_completo:
-                if valore_cella in ["Ferie", "Permesso"]:
-                    st.markdown("---")
-                    col_alert, col_action = st.columns([3, 1])
-                    with col_alert:
-                        st.warning(f"⚠️ Hai selezionato il giorno **{giorno_selezionato.strftime('%d/%m/%Y')}** contrassegnato come **{valore_cella}**.")
-                    with col_action:
-                        # Ritiro immediato senza necessità di approvazione Admin
-                        if st.button(f"🗑️ Vuoi rimuovere il giorno di {valore_cella.lower()}?", use_container_width=True, type="primary"):
-                            data_str = giorno_selezionato.strftime("%Y-%m-%d")
-                            
-                            # Filtriamo e rimuoviamo la richiesta che copre questo giorno specifico
-                            vecchie_richieste = st.session_state.db["richieste"]
-                            nuove_richieste = []
-                            ritrovato = False
-                            
-                            for r in vecchie_richieste:
-                                if r["utente"] == st.session_state.utente_loggato and r["data_inizio"] <= data_str <= r["data_fine"]:
-                                    ritrovato = True
-                                    # Se è una richiesta singola o l'inizio coincide con la fine, la rimuoviamo del tutto.
-                                    # Altrimenti, se copre più giorni, possiamo rimuoverla per semplificazione (oppure dividere il range).
-                                    # Rimuoviamo la richiesta intera come comportamento standard di annullamento.
-                                    continue
-                                nuove_richieste.append(r)
-                            
-                            if ritrovato:
-                                st.session_state.db["richieste"] = nuove_richieste
-                                salva_dati(st.session_state.db)
-                                st.success("Richiesta rimossa con successo!")
-                                st.rerun()
-                            else:
-                                st.error("Nessuna richiesta attiva trovata per questo specifico giorno.")
+        with col_rit_giorno:
+            # Creiamo una lista leggibile delle date occupate da ferie o permessi per facilitare la rimozione
+            opzioni_giorni_occupati = {}
+            for r in mie_approvate:
+                inizio = datetime.datetime.strptime(r["data_inizio"], "%Y-%m-%d").date()
+                fine = datetime.datetime.strptime(r["data_fine"], "%Y-%m-%d").date()
+                tipo_r = r["tipo"]
+                
+                # Sviluppiamo le singole date coperte dalla richiesta
+                temp_date = inizio
+                while temp_date <= fine:
+                    if temp_date.weekday() not in [5, 6]:  # Escludiamo i weekend
+                        label_giorno = f"{temp_date.strftime('%d/%m/%Y')} - {tipo_r}"
+                        # Salviamo il riferimento alla richiesta ID e alla data specifica
+                        opzioni_giorni_occupati[label_giorno] = {
+                            "id": r["id"],
+                            "data_rimozione": temp_date.strftime("%Y-%m-%d")
+                        }
+                    temp_date += datetime.timedelta(days=1)
+
+            if len(opzioni_giorni_occupati) > 0:
+                giorno_selezionato_label = st.selectbox(
+                    "Seleziona il giorno di assenza che desideri rimuovere:", 
+                    list(opzioni_giorni_occupati.keys())
+                )
+                info_rimozione = opzioni_giorni_occupati[giorno_selezionato_label]
             else:
-                # Informazione se clicca sulla colonna di un altro collaboratore
-                st.info(f"ℹ️ Hai selezionato il turno di **{nome_collaboratore}** per il giorno {giorno_selezionato.strftime('%d/%m/%Y')}: **{valore_cella}**.")
+                st.info("Non ci sono giorni feriali coperti da ferie o permessi approvati al momento.")
+                info_rimozione = None
+        
+        with col_rit_btn:
+            st.write("")  # Spaziatore visivo per allineare il bottone
+            if info_rimozione is not None:
+                if st.button("Rimuovi Assenza", use_container_width=True, type="primary"):
+                    req_id = info_rimozione["id"]
+                    data_da_rimuovere = info_rimozione["data_rimozione"]
+                    
+                    vecchie_richieste = st.session_state.db["richieste"]
+                    nuove_richieste = []
+                    
+                    for r in vecchie_richieste:
+                        if r["id"] == req_id:
+                            # Se la richiesta è di un singolo giorno, la cancelliamo direttamente
+                            if r["data_inizio"] == r["data_fine"]:
+                                continue
+                            else:
+                                # Se copre più giorni, la rimuoviamo interamente per semplicità di gestione
+                                continue
+                        nuove_richieste.append(r)
+                        
+                    st.session_state.db["richieste"] = nuove_richieste
+                    salva_dati(st.session_state.db)
+                    st.success("Giorno di assenza rimosso! Il calendario si sta aggiornando...")
+                    st.rerun()
+    else:
+        st.info("Non hai ferie o permessi approvati in questo mese.")
 
 
 # ------------------------------------------------------------------------------
