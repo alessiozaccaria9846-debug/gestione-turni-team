@@ -164,6 +164,17 @@ def ottieni_orario_teorico(nome_utente, data_giorno):
     # Altrimenti prendiamo l'orario standard
     return ORARI_BASE_SETTIMANALI.get(nome_utente, {}).get(wd, "Presente")
 
+# --- UTILITY: CONTEGGIO GIORNI LAVORATIVI (ESCLUSI WEEKEND) ---
+def calcola_giorni_lavorativi(inizio_date, fine_date):
+    """Ritorna il numero di giorni lavorativi compresi tra due date (estremi inclusi)."""
+    giorni_lavorativi = 0
+    giorno_temp = inizio_date
+    while giorno_temp <= fine_date:
+        if giorno_temp.weekday() not in [5, 6]:
+            giorni_lavorativi += 1
+        giorno_temp += datetime.timedelta(days=1)
+    return giorni_lavorativi
+
 # --- LOGICA DI COSTRUZIONE DEL CALENDARIO MENSILE ---
 def genera_calendario_mensile(anno, mese):
     """Genera una matrice (DataFrame) per il mese e anno selezionati con gli orari reali."""
@@ -287,16 +298,15 @@ st.title(f"📅 Gestione Presenze & Turni - {mese_selezionato_nome} {anno_selezi
 
 # Creazione delle schede dell'applicazione (Tabs)
 if st.session_state.ruolo_utente == "Admin":
-    tab_calendar, tab_orari, tab_richieste, tab_approvazioni = st.tabs([
+    tab_calendar, tab_richieste, tab_approvazioni, tab_statistiche = st.tabs([
         "📊 Calendario Team",
-        "📋 Orari di Riferimento & Alternanze",
         "➕ Nuova Richiesta Personale", 
-        "📥 Richieste in Sospeso (Admin)"
+        "📥 Richieste in Sospeso (Admin)",
+        "📈 Statistiche Team (Admin)"
     ])
 else:
-    tab_calendar, tab_orari, tab_richieste = st.tabs([
+    tab_calendar, tab_richieste = st.tabs([
         "📊 Calendario Team", 
-        "📋 Orari di Riferimento & Alternanze",
         "➕ Invia Richiesta"
     ])
 
@@ -323,85 +333,7 @@ with tab_calendar:
 
 
 # ------------------------------------------------------------------------------
-# TAB 2: SEZIONE ORARI FISSI & ALTERNANZE
-# ------------------------------------------------------------------------------
-with tab_orari:
-    st.subheader("📋 Matrice Oraria di Riferimento")
-    st.write("Di seguito sono riportati gli orari standard del team dal Lunedì al Giovedì, come da organizzazione aziendale:")
-    
-    # Costruiamo la tabella fissa Lun-Gio
-    giorni_nomi = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ"]
-    colonne_membri = ["Alessio Z.", "Martina", "Gaia", "Costanza", "Lorenzo", "Francesca"]
-    
-    dati_standard = []
-    for g_idx, g_nome in enumerate(giorni_nomi):
-        riga = {"GIORNO": g_nome}
-        for col in colonne_membri:
-            riga[col] = ORARI_BASE_SETTIMANALI[col][g_idx]
-        dati_standard.append(riga)
-        
-    df_standard = pd.DataFrame(dati_standard).set_index("GIORNO")
-    st.dataframe(df_standard, use_container_width=True)
-    
-    st.markdown("---")
-    st.subheader("🔄 Logica di Rotazione del Venerdì")
-    st.info("""
-    **Regola di alternanza:** Il Venerdì, i membri del team si alternano settimanalmente per garantire una copertura equa degli orari.
-    - **Gruppo A (Martina & Costanza):** Alternano `8-17` e `9-18`.
-    - **Gruppo B (Gaia & Lorenzo):** Alternano `9-18` e `8-17` (fanno l'opposto del Gruppo A).
-    - **Alessio Z. & Francesca:** Svolgono sempre l'orario fisso `9-18`.
-    - *Venerdì di riferimento originario d'inizio:* **29/05/2026** (Martina & Costanza in `8-17`, Gaia & Lorenzo in `9-18`).
-    """)
-    
-    # Tool interattivo per verificare un Venerdì specifico
-    st.markdown("### 🔍 Verifica i turni di un venerdì specifico")
-    data_test = st.date_input("Seleziona un Venerdì per vedere chi lavora in quale orario:", datetime.date(2026, 5, 29))
-    
-    if data_test.weekday() != 4:
-        st.warning("⚠️ La data selezionata non è un venerdì! Scegli un venerdì dal calendario per vedere i turni corretti.")
-    else:
-        # Calcoliamo i turni per quella data
-        dati_venerdi = []
-        for col in colonne_membri:
-            dati_venerdi.append({
-                "Collaboratore": col,
-                "Orario di Turno": calcola_turno_venerdi(col, data_test)
-            })
-        df_ven_test = pd.DataFrame(dati_venerdi)
-        
-        col_dx, col_sx = st.columns([1, 2])
-        with col_dx:
-            st.write(f"**Turni calcolati per il venerdì {data_test.strftime('%d/%m/%Y')}:**")
-            st.dataframe(df_ven_test, use_container_width=True, hide_index=True)
-        with col_sx:
-            g1_orario = calcola_turno_venerdi("Martina", data_test)
-            g2_orario = calcola_turno_venerdi("Gaia", data_test)
-            st.success(f"🟢 **Orario {g1_orario}:** Martina, Costanza")
-            st.info(f"🔵 **Orario {g2_orario}:** Gaia, Lorenzo")
-            st.warning(f"🟡 **Orario 9-18 (Fissi):** Alessio Z., Francesca")
-
-    # Calendario delle prossime 5 settimane
-    st.markdown("### 📅 Pianificazione Prossimi Venerdì")
-    prossimi_venerdi = []
-    inizio_ricerca = datetime.date.today()
-    while inizio_ricerca.weekday() != 4:
-        inizio_ricerca += datetime.timedelta(days=1)
-        
-    for i in range(5):
-        giorno_v = inizio_ricerca + datetime.timedelta(weeks=i)
-        prossimi_venerdi.append({
-            "Venerdì": giorno_v.strftime("%d/%m/%Y"),
-            "Martina & Costanza": calcola_turno_venerdi("Martina", giorno_v),
-            "Gaia & Lorenzo": calcola_turno_venerdi("Gaia", giorno_v),
-            "Francesca": "9-18",
-            "Alessio Z.": "9-18"
-        })
-    df_prossimi = pd.DataFrame(prossimi_venerdi)
-    st.dataframe(df_prossimi, use_container_width=True, hide_index=True)
-
-
-# ------------------------------------------------------------------------------
-# TAB 3: INSERIMENTO RICHIESTE (Per tutti i collaboratori e l'admin stesso)
+# TAB 2: INSERIMENTO RICHIESTE (Per tutti i collaboratori e l'admin stesso)
 # ------------------------------------------------------------------------------
 with tab_richieste:
     st.subheader("Invia una nuova richiesta di assenza")
@@ -411,6 +343,16 @@ with tab_richieste:
         with col1:
             data_inizio = st.date_input("Data Inizio", datetime.date.today())
             data_fine = st.date_input("Data Fine (Inclusa)", datetime.date.today())
+            
+            # Nuovo campo specifico per le ore di permesso richiesto (visibile e selezionabile solo se serve)
+            ore_permesso = st.number_input(
+                "Ore di Permesso (Compila questo campo SOLO se hai selezionato 'Permesso')", 
+                min_value=0, 
+                max_value=8, 
+                value=0, 
+                step=1,
+                help="Indica quante ore di permesso richiedi per giorno lavorativo nel periodo inserito (Max 8 ore al giorno)."
+            )
         with col2:
             tipo_assenza = st.selectbox("Tipo di Assenza", ["Ferie", "Permesso", "Cambio Orario"])
             note = st.text_input("Note / Motivazione (Opzionale)", placeholder="Es. Visita medica o viaggio")
@@ -420,6 +362,8 @@ with tab_richieste:
         if submit_btn:
             if data_inizio > data_fine:
                 st.error("Errore: La data d'inizio non può essere successiva alla data di fine.")
+            elif tipo_assenza == "Permesso" and ore_permesso == 0:
+                st.error("Errore: Per richiedere un Permesso, devi indicare un numero di ore maggiore di 0.")
             else:
                 nuova_req = {
                     "id": len(st.session_state.db["richieste"]) + 1,
@@ -429,6 +373,7 @@ with tab_richieste:
                     "data_fine": data_fine.strftime("%Y-%m-%d"),
                     "tipo": tipo_assenza,
                     "note": note,
+                    "ore_permesso": int(ore_permesso) if tipo_assenza == "Permesso" else 0,
                     "stato": "In attesa",
                     "data_creazione": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
@@ -444,15 +389,18 @@ with tab_richieste:
     
     if len(mie_req) > 0:
         df_mie_req = pd.DataFrame(mie_req)
-        df_mie_req_view = df_mie_req[["tipo", "data_inizio", "data_fine", "note", "stato"]].copy()
-        df_mie_req_view.columns = ["Tipo", "Da Data", "A Data", "Note", "Stato Approvazione"]
+        # Assicuriamo la compatibilità retroattiva per le ore_permesso
+        if "ore_permesso" not in df_mie_req.columns:
+            df_mie_req["ore_permesso"] = 0
+        df_mie_req_view = df_mie_req[["tipo", "data_inizio", "data_fine", "ore_permesso", "note", "stato"]].copy()
+        df_mie_req_view.columns = ["Tipo", "Da Data", "A Data", "Ore Permesso", "Note", "Stato Approvazione"]
         st.dataframe(df_mie_req_view, use_container_width=True)
     else:
         st.info("Non hai ancora inserito nessuna richiesta.")
 
 
 # ------------------------------------------------------------------------------
-# TAB 4: APPROVAZIONI & ANALISI VISIVA COPERTURA (Solo Admin)
+# TAB 3: APPROVAZIONI & ANALISI VISIVA COPERTURA (Solo Admin)
 # ------------------------------------------------------------------------------
 if st.session_state.ruolo_utente == "Admin":
     with tab_approvazioni:
@@ -471,6 +419,7 @@ if st.session_state.ruolo_utente == "Admin":
                 inizio_str = req["data_inizio"]
                 fine_str = req["data_fine"]
                 note_req = req["note"]
+                ore_p = req.get("ore_permesso", 0)
                 
                 inizio_date = datetime.datetime.strptime(inizio_str, "%Y-%m-%d").date()
                 fine_date = datetime.datetime.strptime(fine_str, "%Y-%m-%d").date()
@@ -479,7 +428,8 @@ if st.session_state.ruolo_utente == "Admin":
                     col_det, col_azioni = st.columns([2, 1])
                     
                     with col_det:
-                        st.markdown(f"### **{nome_richiedente}** richiede **{tipo}**")
+                        dettagli_tipo = f"{tipo} ({ore_p} ore/giorno)" if tipo == "Permesso" and ore_p > 0 else tipo
+                        st.markdown(f"### **{nome_richiedente}** richiede **{dettagli_tipo}**")
                         st.markdown(f"📅 **Periodo:** dal *{inizio_str}* al *{fine_str}*")
                         if note_req:
                             st.markdown(f"📝 **Note:** *\"{note_req}\"*")
@@ -535,3 +485,85 @@ if st.session_state.ruolo_utente == "Admin":
                             salva_dati(st.session_state.db)
                             st.toast(f"Richiesta di {nome_richiedente} rifiutata.", icon="❌")
                             st.rerun()
+
+
+# ------------------------------------------------------------------------------
+# TAB 4: SEZIONE STATISTICHE ADMIN (Nuova Sezione - Solo per Admin)
+# ------------------------------------------------------------------------------
+if st.session_state.ruolo_utente == "Admin":
+    with tab_statistiche:
+        st.subheader("📈 Riepilogo Assenze, Ferie & Permessi del Team")
+        st.write("Statistiche dettagliate sul consumo di Ferie (espressi in Giorni Lavorativi) e Permessi (espressi in Ore) di ciascun collaboratore.")
+        
+        # Generiamo le statistiche calcolando i dati dal database delle richieste
+        richieste_totali = st.session_state.db["richieste"]
+        
+        dati_statistiche = []
+        for username_chiave, info_utente in UTENTI.items():
+            nome_completo = info_utente["nome"]
+            
+            # Filtriamo le richieste di questo specifico collaboratore
+            richieste_utente = [r for r in richieste_totali if r["utente"] == username_chiave]
+            
+            # Inizializziamo i contatori
+            ferie_approvate = 0
+            ferie_in_attesa = 0
+            permessi_approvati_ore = 0
+            permessi_in_attesa_ore = 0
+            
+            for req in richieste_utente:
+                inizio = datetime.datetime.strptime(req["data_inizio"], "%Y-%m-%d").date()
+                fine = datetime.datetime.strptime(req["data_fine"], "%Y-%m-%d").date()
+                tipo = req["tipo"]
+                stato = req["stato"]
+                ore_p_singolo = req.get("ore_permesso", 0)
+                
+                # Calcoliamo quanti giorni lavorativi effettivi ricadono nella richiesta
+                giorni_lav = calcola_giorni_lavorativi(inizio, fine)
+                
+                if tipo == "Ferie":
+                    if stato == "Approvata":
+                        ferie_approvate += giorni_lav
+                    elif stato == "In attesa":
+                        ferie_in_attesa += giorni_lav
+                elif tipo == "Permesso":
+                    # Se non erano state salvate le ore nel vecchio database, stabiliamo un default di 8 ore per giorno lavorativo
+                    ore_tot_richiesta = ore_p_singolo if ore_p_singolo > 0 else 8
+                    ore_calcolate = giorni_lav * ore_tot_richiesta
+                    
+                    if stato == "Approvata":
+                        permessi_approvati_ore += ore_calcolate
+                    elif stato == "In attesa":
+                        permessi_in_attesa_ore += ore_calcolate
+            
+            dati_statistiche.append({
+                "Collaboratore": nome_completo,
+                "Ferie Approvate (Giorni)": ferie_approvate,
+                "Ferie In Attesa (Giorni)": ferie_in_attesa,
+                "Ferie Totali Richieste (Giorni)": ferie_approvate + ferie_in_attesa,
+                "Permessi Approvati (Ore)": permessi_approvati_ore,
+                "Permessi In Attesa (Ore)": permessi_in_attesa_ore,
+                "Permessi Totali Richiesti (Ore)": permessi_approvati_ore + permessi_in_attesa_ore
+            })
+            
+        # Creazione del DataFrame Pandas per visualizzare i risultati
+        df_stats = pd.DataFrame(dati_statistiche)
+        
+        # Mostra la tabella principale per l'Admin
+        st.dataframe(df_stats.set_index("Collaboratore"), use_container_width=True)
+        
+        # Aggiungiamo grafici visivi per un'analisi immediata del carico e delle assenze
+        st.markdown("### 📊 Analisi Grafica dei consumi assenze")
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            st.write("**Confronto Ferie Richieste (Giorni lavorativi totali)**")
+            # Preparazione dati grafico Ferie
+            df_ferie_chart = df_stats[["Collaboratore", "Ferie Approvate (Giorni)", "Ferie In Attesa (Giorni)"]].set_index("Collaboratore")
+            st.bar_chart(df_ferie_chart, color=["#ccf2cb", "#ffcc80"])
+            
+        with col_chart2:
+            st.write("**Confronto Ore di Permesso Richieste (Ore totali)**")
+            # Preparazione dati grafico Permessi
+            df_perm_chart = df_stats[["Collaboratore", "Permessi Approvati (Ore)", "Permessi In Attesa (Ore)"]].set_index("Collaboratore")
+            st.bar_chart(df_perm_chart, color=["#cce3f5", "#ffcc80"])
