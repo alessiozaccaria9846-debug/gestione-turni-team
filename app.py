@@ -57,14 +57,15 @@ UTENTI = {
     "francesca": {"nome": "Francesca", "ruolo": "User", "password": "userpassword123"}
 }
 
-# --- DEFINIZIONE TURNI STANDARD DA SCREENSHOT (Lunedì - Giovedì) ---
+# --- DEFINIZIONE TURNI STANDARD (Lunedì - Giovedì) ---
+# Aggiornata Francesca con orario fisso 9-18 anziché Flexy
 ORARI_BASE_SETTIMANALI = {
     "Alessio Z.": {0: "9-18", 1: "9-18", 2: "9-18", 3: "9-18"},
     "Martina":    {0: "9-18", 1: "9-18", 2: "8-17", 3: "8-17"},
     "Gaia":       {0: "8-17", 1: "9-18", 2: "9-18", 3: "8-17"},
     "Costanza":   {0: "8-17", 1: "8-17", 2: "9-18", 3: "8-17"},
     "Lorenzo":    {0: "9-18", 1: "8-17", 2: "8-17", 3: "9-18"},
-    "Francesca":  {0: "Flexy", 1: "Flexy", 2: "Flexy", 3: "Flexy"}
+    "Francesca":  {0: "9-18", 1: "9-18", 2: "9-18", 3: "9-18"}
 }
 
 DB_FILE = "turni_data.json"
@@ -207,6 +208,7 @@ def genera_calendario_mensile(anno, mese):
             while giorno_corr <= req_fine:
                 if giorno_corr in df_calendario.index:
                     if giorno_corr.weekday() not in [5, 6]: # Non sovrascrivere il weekend
+                        # Se è un permesso parziale, mostriamo comunque l'indicazione di permesso
                         df_calendario.at[giorno_corr, richiedente] = tipo
                 giorno_corr += datetime.timedelta(days=1)
                 
@@ -333,55 +335,82 @@ with tab_calendar:
 
 
 # ------------------------------------------------------------------------------
-# TAB 2: INSERIMENTO RICHIESTE (Per tutti i collaboratori e l'admin stesso)
+# TAB 2: INSERIMENTO RICHIESTE (Dinamico e Reattivo)
 # ------------------------------------------------------------------------------
 with tab_richieste:
     st.subheader("Invia una nuova richiesta di assenza")
     
-    with st.form("form_richiesta", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
+    # Widget di selezione tipo assenza (posto fuori da un blocco st.form per garantire istantanea reattività)
+    tipo_assenza = st.selectbox("Tipo di Assenza", ["Ferie", "Permesso", "Cambio Orario"])
+    
+    col1, col2 = st.columns(2)
+    
+    # Inizializziamo i dati in base alla scelta dell'utente
+    conferma_invio = False
+    
+    with col1:
+        if tipo_assenza == "Permesso":
+            # Per i permessi, eliminiamo la Data Fine e chiediamo solo una Data singola
+            data_permesso = st.date_input("Data Permesso", datetime.date.today())
+            data_inizio = data_permesso
+            data_fine = data_permesso
+            
+            # Nuovi slot per inserire l'ora di inizio e fine
+            col_h1, col_h2 = st.columns(2)
+            with col_h1:
+                ora_inizio = st.time_input("Ora Inizio", datetime.time(9, 0))
+            with col_h2:
+                ora_fine = st.time_input("Ora Fine", datetime.time(13, 0))
+                
+            # Calcoliamo la differenza oraria
+            dt_inizio = datetime.datetime.combine(datetime.date.today(), ora_inizio)
+            dt_fine = datetime.datetime.combine(datetime.date.today(), ora_fine)
+            
+            if dt_fine > dt_inizio:
+                ore_calcolate_permesso = (dt_fine - dt_inizio).seconds / 3600.0
+                st.info(f"⏱️ Durata calcolata: **{ore_calcolate_permesso:.1f} ore**")
+            else:
+                ore_calcolate_permesso = 0
+                st.error("L'orario di fine deve essere successivo all'orario di inizio!")
+        else:
+            # Per Ferie e Cambi, mostriamo la classica selezione con data inizio e fine
             data_inizio = st.date_input("Data Inizio", datetime.date.today())
             data_fine = st.date_input("Data Fine (Inclusa)", datetime.date.today())
+            ore_calcolate_permesso = 0
             
-            # Nuovo campo specifico per le ore di permesso richiesto (visibile e selezionabile solo se serve)
-            ore_permesso = st.number_input(
-                "Ore di Permesso (Compila questo campo SOLO se hai selezionato 'Permesso')", 
-                min_value=0, 
-                max_value=8, 
-                value=0, 
-                step=1,
-                help="Indica quante ore di permesso richiedi per giorno lavorativo nel periodo inserito (Max 8 ore al giorno)."
-            )
-        with col2:
-            tipo_assenza = st.selectbox("Tipo di Assenza", ["Ferie", "Permesso", "Cambio Orario"])
-            note = st.text_input("Note / Motivazione (Opzionale)", placeholder="Es. Visita medica o viaggio")
+    with col2:
+        note = st.text_input("Note / Motivazione (Opzionale)", placeholder="Es. Visita medica o viaggio familiare")
+        st.write("")
+        st.write("")
+        invio_selezionato = st.button("Invia Richiesta", use_container_width=True, type="primary")
+
+    if invio_selezionato:
+        if data_inizio > data_fine:
+            st.error("Errore: La data d'inizio non può essere successiva alla data di fine.")
+        elif tipo_assenza == "Permesso" and ore_calcolate_permesso <= 0:
+            st.error("Errore: Verifica l'orario inserito. Le ore di permesso devono essere maggiori di 0.")
+        else:
+            # Creazione nuovo record richiesta
+            nuova_req = {
+                "id": len(st.session_state.db["richieste"]) + 1,
+                "utente": st.session_state.utente_loggato,
+                "nome_completo": st.session_state.nome_completo,
+                "data_inizio": data_inizio.strftime("%Y-%m-%d"),
+                "data_fine": data_fine.strftime("%Y-%m-%d"),
+                "tipo": tipo_assenza,
+                "note": note,
+                "ora_inizio": ora_inizio.strftime("%H:%M") if tipo_assenza == "Permesso" else "",
+                "ora_fine": ora_fine.strftime("%H:%M") if tipo_assenza == "Permesso" else "",
+                "ore_permesso": round(ore_calcolate_permesso, 2) if tipo_assenza == "Permesso" else 0,
+                "stato": "In attesa",
+                "data_creazione": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
             
-        submit_btn = st.form_submit_button("Invia Richiesta", use_container_width=True)
-        
-        if submit_btn:
-            if data_inizio > data_fine:
-                st.error("Errore: La data d'inizio non può essere successiva alla data di fine.")
-            elif tipo_assenza == "Permesso" and ore_permesso == 0:
-                st.error("Errore: Per richiedere un Permesso, devi indicare un numero di ore maggiore di 0.")
-            else:
-                nuova_req = {
-                    "id": len(st.session_state.db["richieste"]) + 1,
-                    "utente": st.session_state.utente_loggato,
-                    "nome_completo": st.session_state.nome_completo,
-                    "data_inizio": data_inizio.strftime("%Y-%m-%d"),
-                    "data_fine": data_fine.strftime("%Y-%m-%d"),
-                    "tipo": tipo_assenza,
-                    "note": note,
-                    "ore_permesso": int(ore_permesso) if tipo_assenza == "Permesso" else 0,
-                    "stato": "In attesa",
-                    "data_creazione": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                
-                st.session_state.db["richieste"].append(nuova_req)
-                salva_dati(st.session_state.db)
-                st.success("Richiesta inviata correttamente e in attesa di approvazione.")
-                st.balloons()
+            st.session_state.db["richieste"].append(nuova_req)
+            salva_dati(st.session_state.db)
+            st.success("Richiesta inviata correttamente e in attesa di approvazione!")
+            st.balloons()
+            st.rerun()
 
     st.markdown("---")
     st.subheader("Le tue richieste inviate")
@@ -389,12 +418,30 @@ with tab_richieste:
     
     if len(mie_req) > 0:
         df_mie_req = pd.DataFrame(mie_req)
-        # Assicuriamo la compatibilità retroattiva per le ore_permesso
+        # Assicuriamo la compatibilità retroattiva dei campi
         if "ore_permesso" not in df_mie_req.columns:
             df_mie_req["ore_permesso"] = 0
-        df_mie_req_view = df_mie_req[["tipo", "data_inizio", "data_fine", "ore_permesso", "note", "stato"]].copy()
-        df_mie_req_view.columns = ["Tipo", "Da Data", "A Data", "Ore Permesso", "Note", "Stato Approvazione"]
-        st.dataframe(df_mie_req_view, use_container_width=True)
+        if "ora_inizio" not in df_mie_req.columns:
+            df_mie_req["ora_inizio"] = ""
+        if "ora_fine" not in df_mie_req.columns:
+            df_mie_req["ora_fine"] = ""
+            
+        df_mie_req_view = df_mie_req.copy()
+        
+        # Generiamo una descrizione oraria dettagliata per i permessi
+        dettaglio_orario = []
+        for idx, row in df_mie_req_view.iterrows():
+            if row["tipo"] == "Permesso" and row["ora_inizio"] != "":
+                dettaglio_orario.append(f"{row['ora_inizio']} - {row['ora_fine']} ({row['ore_permesso']} ore)")
+            elif row["tipo"] == "Permesso":
+                dettaglio_orario.append(f"{row['ore_permesso']} ore")
+            else:
+                dettaglio_orario.append("-")
+                
+        df_mie_req_view["Orario/Ore"] = dettaglio_orario
+        df_mie_req_view_table = df_mie_req_view[["tipo", "data_inizio", "data_fine", "Orario/Ore", "note", "stato"]].copy()
+        df_mie_req_view_table.columns = ["Tipo", "Da Data", "A Data", "Dettaglio Permesso", "Note", "Stato Approvazione"]
+        st.dataframe(df_mie_req_view_table, use_container_width=True)
     else:
         st.info("Non hai ancora inserito nessuna richiesta.")
 
@@ -420,6 +467,8 @@ if st.session_state.ruolo_utente == "Admin":
                 fine_str = req["data_fine"]
                 note_req = req["note"]
                 ore_p = req.get("ore_permesso", 0)
+                ora_in = req.get("ora_inizio", "")
+                ora_fi = req.get("ora_fine", "")
                 
                 inizio_date = datetime.datetime.strptime(inizio_str, "%Y-%m-%d").date()
                 fine_date = datetime.datetime.strptime(fine_str, "%Y-%m-%d").date()
@@ -428,9 +477,13 @@ if st.session_state.ruolo_utente == "Admin":
                     col_det, col_azioni = st.columns([2, 1])
                     
                     with col_det:
-                        dettagli_tipo = f"{tipo} ({ore_p} ore/giorno)" if tipo == "Permesso" and ore_p > 0 else tipo
+                        if tipo == "Permesso" and ora_in != "":
+                            dettagli_tipo = f"{tipo} dalle ore {ora_in} alle ore {ora_fi} ({ore_p} ore totali)"
+                        else:
+                            dettagli_tipo = tipo
+                            
                         st.markdown(f"### **{nome_richiedente}** richiede **{dettagli_tipo}**")
-                        st.markdown(f"📅 **Periodo:** dal *{inizio_str}* al *{fine_str}*")
+                        st.markdown(f"📅 **Data:** *{inizio_str}*" if inizio_str == fine_str else f"📅 **Periodo:** dal *{inizio_str}* al *{fine_str}*")
                         if note_req:
                             st.markdown(f"📝 **Note:** *\"{note_req}\"*")
                             
@@ -488,24 +541,21 @@ if st.session_state.ruolo_utente == "Admin":
 
 
 # ------------------------------------------------------------------------------
-# TAB 4: SEZIONE STATISTICHE ADMIN (Nuova Sezione - Solo per Admin)
+# TAB 4: SEZIONE STATISTICHE ADMIN (Solo per Admin)
 # ------------------------------------------------------------------------------
 if st.session_state.ruolo_utente == "Admin":
     with tab_statistiche:
         st.subheader("📈 Riepilogo Assenze, Ferie & Permessi del Team")
         st.write("Statistiche dettagliate sul consumo di Ferie (espressi in Giorni Lavorativi) e Permessi (espressi in Ore) di ciascun collaboratore.")
         
-        # Generiamo le statistiche calcolando i dati dal database delle richieste
         richieste_totali = st.session_state.db["richieste"]
         
         dati_statistiche = []
         for username_chiave, info_utente in UTENTI.items():
             nome_completo = info_utente["nome"]
             
-            # Filtriamo le richieste di questo specifico collaboratore
             richieste_utente = [r for r in richieste_totali if r["utente"] == username_chiave]
             
-            # Inizializziamo i contatori
             ferie_approvate = 0
             ferie_in_attesa = 0
             permessi_approvati_ore = 0
@@ -518,7 +568,6 @@ if st.session_state.ruolo_utente == "Admin":
                 stato = req["stato"]
                 ore_p_singolo = req.get("ore_permesso", 0)
                 
-                # Calcoliamo quanti giorni lavorativi effettivi ricadono nella richiesta
                 giorni_lav = calcola_giorni_lavorativi(inizio, fine)
                 
                 if tipo == "Ferie":
@@ -527,9 +576,8 @@ if st.session_state.ruolo_utente == "Admin":
                     elif stato == "In attesa":
                         ferie_in_attesa += giorni_lav
                 elif tipo == "Permesso":
-                    # Se non erano state salvate le ore nel vecchio database, stabiliamo un default di 8 ore per giorno lavorativo
-                    ore_tot_richiesta = ore_p_singolo if ore_p_singolo > 0 else 8
-                    ore_calcolate = giorni_lav * ore_tot_richiesta
+                    # Calcolo accurato delle ore di permesso
+                    ore_calcolate = ore_p_singolo if ore_p_singolo > 0 else (giorni_lav * 8)
                     
                     if stato == "Approvata":
                         permessi_approvati_ore += ore_calcolate
@@ -546,24 +594,18 @@ if st.session_state.ruolo_utente == "Admin":
                 "Permessi Totali Richiesti (Ore)": permessi_approvati_ore + permessi_in_attesa_ore
             })
             
-        # Creazione del DataFrame Pandas per visualizzare i risultati
         df_stats = pd.DataFrame(dati_statistiche)
-        
-        # Mostra la tabella principale per l'Admin
         st.dataframe(df_stats.set_index("Collaboratore"), use_container_width=True)
         
-        # Aggiungiamo grafici visivi per un'analisi immediata del carico e delle assenze
         st.markdown("### 📊 Analisi Grafica dei consumi assenze")
         col_chart1, col_chart2 = st.columns(2)
         
         with col_chart1:
             st.write("**Confronto Ferie Richieste (Giorni lavorativi totali)**")
-            # Preparazione dati grafico Ferie
             df_ferie_chart = df_stats[["Collaboratore", "Ferie Approvate (Giorni)", "Ferie In Attesa (Giorni)"]].set_index("Collaboratore")
             st.bar_chart(df_ferie_chart, color=["#ccf2cb", "#ffcc80"])
             
         with col_chart2:
             st.write("**Confronto Ore di Permesso Richieste (Ore totali)**")
-            # Preparazione dati grafico Permessi
             df_perm_chart = df_stats[["Collaboratore", "Permessi Approvati (Ore)", "Permessi In Attesa (Ore)"]].set_index("Collaboratore")
             st.bar_chart(df_perm_chart, color=["#cce3f5", "#ffcc80"])
