@@ -78,7 +78,7 @@ def logout():
 # --- LOGICA DI COSTRUZIONE DEL CALENDARIO ---
 def genera_calendario_mensile(anno, mese):
     """Genera una matrice (DataFrame) per il mese e anno selezionati."""
-    # Trova il primo e l'ultimo girono del mese
+    # Trova il primo e l'ultimo giorno del mese
     primo_giorno = datetime.date(anno, mese, 1)
     if mese == 12:
         ultimo_giorno = datetime.date(anno + 1, 1, 1) - datetime.timedelta(days=1)
@@ -150,8 +150,8 @@ def ottieni_assenze_giorno(data_selezionata):
 # SCHERMATA DI LOGIN
 # ==============================================================================
 if not st.session_state.autenticato:
-    st.markdown("<h1 style='text-align: center; color: #007bff;'>📅 TeamShift Portal</h1>", unsafe_style=True)
-    st.markdown("<p style='text-align: center; color: #6c757d;'>Piattaforma dinamica per il monitoraggio e la gestione dei turni del team</p>", unsafe_style=True)
+    st.markdown("<h1 style='text-align: center; color: #007bff;'>📅 TeamShift Portal</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #6c757d;'>Piattaforma dinamica per il monitoraggio e la gestione dei turni del team</p>", unsafe_allow_html=True)
     
     col_login, _ = st.columns([1, 1])
     with col_login:
