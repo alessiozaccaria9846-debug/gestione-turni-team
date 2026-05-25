@@ -313,7 +313,7 @@ else:
 
 
 # ------------------------------------------------------------------------------
-# TAB 1: CALENDARIO TEAM (Compatto, visibile senza scroll)
+# TAB 1: CALENDARIO TEAM (Interattivo con Click di Ritiro Diretto)
 # ------------------------------------------------------------------------------
 with tab_calendar:
     # Generazione e Formattazione del Calendario
@@ -325,43 +325,94 @@ with tab_calendar:
     nuovi_indici = [f"{giorno.strftime('%d/%m/%Y')} ({giorni_settimana[giorno.weekday()]})" for giorno in df_cal_visual.index]
     df_cal_visual.index = nuovi_indici
     
-    # Impostiamo l'altezza fissa ottimizzata per non causare scroll di pagina
-    st.dataframe(
+    # Rendiamo il calendario interattivo permettendo la selezione di singole celle
+    st.markdown("*Puoi ritirare un giorno di Ferie o Permesso approvato cliccando direttamente sulla cella corrispondente alla tua colonna.*")
+    event = st.dataframe(
         df_cal_visual.style.map(colora_celle),
         use_container_width=True,
-        height=480 # Altezza ideale per mostrare tutti i giorni del mese senza scroll verticali di pagina
+        height=480,
+        on_select="rerun",
+        selection_mode="single_cell"
     )
 
+    # Gestione del Click sulla cella del calendario
+    cells = []
+    if event is not None:
+        if isinstance(event, dict) and "selection" in event:
+            cells = event["selection"].get("cells", [])
+        elif hasattr(event, "selection") and hasattr(event.selection, "cells"):
+            cells = event.selection.cells
+
+    if cells:
+        cell = cells[0]
+        row_idx = cell.get("row")
+        col_idx = cell.get("column")
+        
+        if row_idx is not None and col_idx is not None:
+            giorno_selezionato = df_cal.index[row_idx]
+            nome_collaboratore = df_cal.columns[col_idx]
+            valore_cella = df_cal.iloc[row_idx, col_idx]
+            
+            # Controlliamo se la cella selezionata corrisponde all'utente loggato
+            if nome_collaboratore == st.session_state.nome_completo:
+                if valore_cella in ["Ferie", "Permesso"]:
+                    st.markdown("---")
+                    col_alert, col_action = st.columns([3, 1])
+                    with col_alert:
+                        st.warning(f"⚠️ Hai selezionato il giorno **{giorno_selezionato.strftime('%d/%m/%Y')}** contrassegnato come **{valore_cella}**.")
+                    with col_action:
+                        # Ritiro immediato senza necessità di approvazione Admin
+                        if st.button(f"🗑️ Vuoi rimuovere il giorno di {valore_cella.lower()}?", use_container_width=True, type="primary"):
+                            data_str = giorno_selezionato.strftime("%Y-%m-%d")
+                            
+                            # Filtriamo e rimuoviamo la richiesta che copre questo giorno specifico
+                            vecchie_richieste = st.session_state.db["richieste"]
+                            nuove_richieste = []
+                            ritrovato = False
+                            
+                            for r in vecchie_richieste:
+                                if r["utente"] == st.session_state.utente_loggato and r["data_inizio"] <= data_str <= r["data_fine"]:
+                                    ritrovato = True
+                                    # Se è una richiesta singola o l'inizio coincide con la fine, la rimuoviamo del tutto.
+                                    # Altrimenti, se copre più giorni, possiamo rimuoverla per semplificazione (oppure dividere il range).
+                                    # Rimuoviamo la richiesta intera come comportamento standard di annullamento.
+                                    continue
+                                nuove_richieste.append(r)
+                            
+                            if ritrovato:
+                                st.session_state.db["richieste"] = nuove_richieste
+                                salva_dati(st.session_state.db)
+                                st.success("Richiesta rimossa con successo!")
+                                st.rerun()
+                            else:
+                                st.error("Nessuna richiesta attiva trovata per questo specifico giorno.")
+            else:
+                # Informazione se clicca sulla colonna di un altro collaboratore
+                st.info(f"ℹ️ Hai selezionato il turno di **{nome_collaboratore}** per il giorno {giorno_selezionato.strftime('%d/%m/%Y')}: **{valore_cella}**.")
+
 
 # ------------------------------------------------------------------------------
-# TAB 2: INSERIMENTO RICHIESTE (Dinamico e Reattivo)
+# TAB 2: INSERIMENTO E RITIRO RICHIESTE (Dinamico e Reattivo)
 # ------------------------------------------------------------------------------
 with tab_richieste:
-    st.subheader("Invia una nuova richiesta di assenza")
+    col_ins, col_rit = st.columns(2)
     
-    # Rimosso "Cambio Orario" lasciando esclusivamente "Ferie" e "Permesso"
-    tipo_assenza = st.selectbox("Tipo di Assenza", ["Ferie", "Permesso"])
-    
-    col1, col2 = st.columns(2)
-    
-    # Inizializziamo i dati in base alla scelta dell'utente
-    conferma_invio = False
-    
-    with col1:
+    with col_ins:
+        st.subheader("➕ Nuova Richiesta Personale")
+        tipo_assenza = st.selectbox("Tipo di Assenza", ["Ferie", "Permesso"])
+        
+        # Inizializziamo i campi per l'inserimento
         if tipo_assenza == "Permesso":
-            # Per i permessi, eliminiamo la Data Fine e chiediamo solo una Data singola
             data_permesso = st.date_input("Data Permesso", datetime.date.today())
             data_inizio = data_permesso
             data_fine = data_permesso
             
-            # Nuovi slot per inserire l'ora di inizio e fine
             col_h1, col_h2 = st.columns(2)
             with col_h1:
                 ora_inizio = st.time_input("Ora Inizio", datetime.time(9, 0))
             with col_h2:
                 ora_fine = st.time_input("Ora Fine", datetime.time(13, 0))
                 
-            # Calcoliamo la differenza oraria
             dt_inizio = datetime.datetime.combine(datetime.date.today(), ora_inizio)
             dt_fine = datetime.datetime.combine(datetime.date.today(), ora_fine)
             
@@ -372,52 +423,72 @@ with tab_richieste:
                 ore_calcolate_permesso = 0
                 st.error("L'orario di fine deve essere successivo all'orario di inizio!")
         else:
-            # Per le Ferie, mostriamo la classica selezione con data inizio e fine
             data_inizio = st.date_input("Data Inizio", datetime.date.today())
             data_fine = st.date_input("Data Fine (Inclusa)", datetime.date.today())
             ore_calcolate_permesso = 0
             
-    with col2:
-        note = st.text_input("Note / Motivazione (Opzionale)", placeholder="Es. Visita medica o viaggio familiare")
-        st.write("")
-        st.write("")
+        note = st.text_input("Note / Motivazione (Opzionale)", placeholder="Es. Visita medica o viaggio")
         invio_selezionato = st.button("Invia Richiesta", use_container_width=True, type="primary")
 
-    if invio_selezionato:
-        if data_inizio > data_fine:
-            st.error("Errore: La data d'inizio non può essere successiva alla data di fine.")
-        elif tipo_assenza == "Permesso" and ore_calcolate_permesso <= 0:
-            st.error("Errore: Verifica l'orario inserito. Le ore di permesso devono essere maggiori di 0.")
-        else:
-            # Creazione nuovo record richiesta
-            nuova_req = {
-                "id": len(st.session_state.db["richieste"]) + 1,
-                "utente": st.session_state.utente_loggato,
-                "nome_completo": st.session_state.nome_completo,
-                "data_inizio": data_inizio.strftime("%Y-%m-%d"),
-                "data_fine": data_fine.strftime("%Y-%m-%d"),
-                "tipo": tipo_assenza,
-                "note": note,
-                "ora_inizio": ora_inizio.strftime("%H:%M") if tipo_assenza == "Permesso" else "",
-                "ora_fine": ora_fine.strftime("%H:%M") if tipo_assenza == "Permesso" else "",
-                "ore_permesso": round(ore_calcolate_permesso, 2) if tipo_assenza == "Permesso" else 0,
-                "stato": "In attesa",
-                "data_creazione": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+        if invio_selezionato:
+            if data_inizio > data_fine:
+                st.error("Errore: La data d'inizio non può essere successiva alla data di fine.")
+            elif tipo_assenza == "Permesso" and ore_calcolate_permesso <= 0:
+                st.error("Errore: Verifica l'orario inserito. Le ore di permesso devono essere maggiori di 0.")
+            else:
+                # Creazione nuovo record richiesta
+                nuova_req = {
+                    "id": len(st.session_state.db["richieste"]) + 1,
+                    "utente": st.session_state.utente_loggato,
+                    "nome_completo": st.session_state.nome_completo,
+                    "data_inizio": data_inizio.strftime("%Y-%m-%d"),
+                    "data_fine": data_fine.strftime("%Y-%m-%d"),
+                    "tipo": tipo_assenza,
+                    "note": note,
+                    "ora_inizio": ora_inizio.strftime("%H:%M") if tipo_assenza == "Permesso" else "",
+                    "ora_fine": ora_fine.strftime("%H:%M") if tipo_assenza == "Permesso" else "",
+                    "ore_permesso": round(ore_calcolate_permesso, 2) if tipo_assenza == "Permesso" else 0,
+                    "stato": "In attesa",
+                    "data_creazione": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                st.session_state.db["richieste"].append(nuova_req)
+                salva_dati(st.session_state.db)
+                st.success("Richiesta inviata correttamente e in attesa di approvazione!")
+                st.balloons()
+                st.rerun()
+
+    # --- SEZIONE PER IL RITIRO DIRETTO DELLE RICHIESTE ---
+    with col_rit:
+        st.subheader("🔄 Gestione e Ritiro Richieste Attive")
+        st.write("Puoi rimuovere o annullare immediatamente qualsiasi tua richiesta in sospeso o già approvata:")
+        
+        mie_attive = [r for r in st.session_state.db["richieste"] if r["utente"] == st.session_state.utente_loggato and r["stato"] in ["In attesa", "Approvata"]]
+        
+        if len(mie_attive) > 0:
+            opzioni_ritiro = {}
+            for r in mie_attive:
+                dettaglio = f"{r['tipo']} (dal {r['data_inizio']} al {r['data_fine']}) - [{r['stato']}]"
+                opzioni_ritiro[dettaglio] = r["id"]
+                
+            richiesta_da_ritirare = st.selectbox("Seleziona quale richiesta vuoi annullare:", list(opzioni_ritiro.keys()))
             
-            st.session_state.db["richieste"].append(nuova_req)
-            salva_dati(st.session_state.db)
-            st.success("Richiesta inviata correttamente e in attesa di approvazione!")
-            st.balloons()
-            st.rerun()
+            if st.button("🗑️ Ritira Richiesta Selezionata", use_container_width=True):
+                id_da_cancellare = opzioni_ritiro[richiesta_da_ritirare]
+                # Aggiorna il database filtrando via la richiesta eliminata
+                st.session_state.db["richieste"] = [r for r in st.session_state.db["richieste"] if r["id"] != id_da_cancellare]
+                salva_dati(st.session_state.db)
+                st.success("Richiesta ritirata con successo e rimossa dal calendario!")
+                st.rerun()
+        else:
+            st.info("Non hai richieste attive o approvate al momento da poter ritirare.")
 
     st.markdown("---")
-    st.subheader("Le tue richieste inviate")
+    st.subheader("Le tue richieste storiche")
     mie_req = [r for r in st.session_state.db["richieste"] if r["utente"] == st.session_state.utente_loggato]
     
     if len(mie_req) > 0:
         df_mie_req = pd.DataFrame(mie_req)
-        # Assicuriamo la compatibilità retroattiva dei campi
         if "ore_permesso" not in df_mie_req.columns:
             df_mie_req["ore_permesso"] = 0
         if "ora_inizio" not in df_mie_req.columns:
@@ -427,7 +498,6 @@ with tab_richieste:
             
         df_mie_req_view = df_mie_req.copy()
         
-        # Generiamo una descrizione oraria dettagliata per i permessi
         dettaglio_orario = []
         for idx, row in df_mie_req_view.iterrows():
             if row["tipo"] == "Permesso" and row["ora_inizio"] != "":
@@ -575,7 +645,6 @@ if st.session_state.ruolo_utente == "Admin":
                     elif stato == "In attesa":
                         ferie_in_attesa += giorni_lav
                 elif tipo == "Permesso":
-                    # Calcolo accurato delle ore di permesso
                     ore_calcolate = ore_p_singolo if ore_p_singolo > 0 else (giorni_lav * 8)
                     
                     if stato == "Approvata":
