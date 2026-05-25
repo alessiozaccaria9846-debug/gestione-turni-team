@@ -12,6 +12,41 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- CSS PERSONALIZZATO PER COMPATTARE IL LAYOUT E PREVENIRE LO SCROLL ---
+st.markdown("""
+    <style>
+        /* Riduciamo a zero i margini superiori e inferiori di Streamlit */
+        .block-container {
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+            max-width: 100% !important;
+        }
+        /* Riduciamo lo spazio sopra e sotto il titolo principale */
+        h1 {
+            margin-top: -1.5rem !important;
+            margin-bottom: 0.2rem !important;
+            font-size: 1.8rem !important;
+            font-weight: 700 !important;
+        }
+        /* Rendiamo i Tabs più compatti */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 35px;
+            padding-top: 2px;
+            padding-bottom: 2px;
+            font-size: 0.9rem !important;
+        }
+        /* Riduzione padding dei widget e scritte in sidebar */
+        section[data-testid="stSidebar"] .block-container {
+            padding-top: 1rem !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- CONFIGURAZIONE UTENTI E RUOLI ---
 UTENTI = {
     "alessio": {"nome": "Alessio Z.", "ruolo": "Admin", "password": "adminpassword123"},
@@ -166,15 +201,19 @@ def genera_calendario_mensile(anno, mese):
                 
     return df_calendario
 
-# --- STILIZZAZIONE VISIVA DELLA TABELLA ---
+# --- STILIZZAZIONE VISIVA DELLA TABELLA (Colori dello Screenshot) ---
 def colora_celle(val):
-    """Applica i colori richiesti alle celle del calendario."""
-    if val in ["9-18", "8-17", "Flexy", "Presente"]:
-        return "background-color: #d4edda; color: #155724; font-weight: 500;" # Verde chiaro (Orario Presente)
+    """Applica i colori richiesti alle celle del calendario basandosi sullo screenshot."""
+    if val == "9-18":
+        return "background-color: #ccf2cb; color: #1b5e20; font-weight: 600; font-size: 0.85rem;" # Verde (Screenshot)
+    elif val == "8-17":
+        return "background-color: #eed7f2; color: #4a148c; font-weight: 600; font-size: 0.85rem;" # Viola (Screenshot)
+    elif val == "Flexy":
+        return "background-color: #cce3f5; color: #0d47a1; font-weight: 600; font-size: 0.85rem;" # Azzurro (Screenshot)
     elif val in ["Ferie", "Permesso", "Cambio Orario"]:
-        return "background-color: #fff3cd; color: #856404; font-weight: bold; border-left: 4px solid #ffc107;" # Giallo chiaro (Assenza)
+        return "background-color: #ffcc80; color: #e65100; font-weight: bold; font-size: 0.85rem; border-left: 4px solid #ff9100;" # Arancione (Assenza)
     elif val == "Weekend (Chiuso)":
-        return "background-color: #343a40; color: #6c757d; font-style: italic;" # Grigio scuro
+        return "background-color: #343a40; color: #858d96; font-style: italic; font-size: 0.8rem;" # Grigio scuro
     return ""
 
 # --- CONTEGGIO ASSENZE GIORNALIERE (ALERT DI COPERTURA) ---
@@ -198,7 +237,7 @@ def ottieni_assenze_giorno(data_selezionata):
 # ==============================================================================
 if not st.session_state.autenticato:
     st.markdown("<h1 style='text-align: center; color: #007bff;'>📅 TeamShift Portal</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #6c757d;'>Piattaforma dinamica per il monitoraggio e la gestione dei turni del team</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #6c757d; font-size: 0.9rem; margin-top: -10px;'>Piattaforma dinamica per il monitoraggio e la gestione dei turni del team</p>", unsafe_allow_html=True)
     
     col_login, _ = st.columns([1, 1])
     with col_login:
@@ -263,26 +302,23 @@ else:
 
 
 # ------------------------------------------------------------------------------
-# TAB 1: CALENDARIO TEAM (Visibile a tutti)
+# TAB 1: CALENDARIO TEAM (Compatto, visibile senza scroll)
 # ------------------------------------------------------------------------------
 with tab_calendar:
-    st.subheader("Tabella Riassuntiva Copertura Giornaliera")
-    st.markdown("*I fine settimana (Sabato e Domenica) sono contrassegnati in grigio scuro. Gli orari feriali mostrano l'orario effettivo calcolato.*")
-    
     # Generazione e Formattazione del Calendario
     df_cal = genera_calendario_mensile(anno_selezionato, mese_selezionato_num)
     
     # Prepariamo la tabella per mostrare il giorno della settimana vicino alla data
     df_cal_visual = df_cal.copy()
-    giorni_settimana = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
+    giorni_settimana = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sat", "Dom"]
     nuovi_indici = [f"{giorno.strftime('%d/%m/%Y')} ({giorni_settimana[giorno.weekday()]})" for giorno in df_cal_visual.index]
     df_cal_visual.index = nuovi_indici
     
-    # Render della tabella stilizzata con i colori configurati
+    # Impostiamo l'altezza fissa ottimizzata per non causare scroll di pagina
     st.dataframe(
         df_cal_visual.style.map(colora_celle),
         use_container_width=True,
-        height=600
+        height=480 # Altezza ideale per mostrare tutti i giorni del mese senza scroll verticali di pagina
     )
 
 
@@ -293,7 +329,7 @@ with tab_orari:
     st.subheader("📋 Matrice Oraria di Riferimento")
     st.write("Di seguito sono riportati gli orari standard del team dal Lunedì al Giovedì, come da organizzazione aziendale:")
     
-    # Costruiamo la tabella fissa Lun-Gio (utilizzando i nomi con la formattazione corretta)
+    # Costruiamo la tabella fissa Lun-Gio
     giorni_nomi = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ"]
     colonne_membri = ["Alessio Z.", "Martina", "Gaia", "Costanza", "Lorenzo", "Francesca"]
     
@@ -338,7 +374,6 @@ with tab_orari:
             st.write(f"**Turni calcolati per il venerdì {data_test.strftime('%d/%m/%Y')}:**")
             st.dataframe(df_ven_test, use_container_width=True, hide_index=True)
         with col_sx:
-            # Mostriamo un riepilogo visivo amichevole
             g1_orario = calcola_turno_venerdi("Martina", data_test)
             g2_orario = calcola_turno_venerdi("Gaia", data_test)
             st.success(f"🟢 **Orario {g1_orario}:** Martina, Costanza")
@@ -349,7 +384,6 @@ with tab_orari:
     st.markdown("### 📅 Pianificazione Prossimi Venerdì")
     prossimi_venerdi = []
     inizio_ricerca = datetime.date.today()
-    # Trova il primo venerdì utile a partire da oggi
     while inizio_ricerca.weekday() != 4:
         inizio_ricerca += datetime.timedelta(days=1)
         
